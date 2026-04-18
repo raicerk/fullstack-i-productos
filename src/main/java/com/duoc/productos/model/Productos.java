@@ -1,8 +1,6 @@
 package com.duoc.productos.model;
 
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Positive;
+import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -10,18 +8,18 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 @Data
+@Entity
+@Table(name = "productos")
 public class Productos {
 
-    @Positive(message = "Debe ser mayor a cero")
-    private Integer Id;
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Integer id;
 
-    @NotNull(message = "No puede ser nulo")
-    @NotBlank(message = "No puede estar vacio")
-    private String Nombre;
+    @Column(nullable = false)
+    private String nombre;
 
-    @Positive(message = "Debe ser mayor a cero")
-    private Integer Cantidad;
+    private Integer cantidad;
 
-    @Positive(message = "Debe ser mayor a cero")
-    private Integer Precio;
+    private Integer precio;
 }

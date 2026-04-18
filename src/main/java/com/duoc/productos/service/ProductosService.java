@@ -58,7 +58,7 @@ public class ProductosService {
 
     // MÉTODO HELPER: Para no repetir código de conversión
     private ProductoDTO convertirADTO(Productos producto) {
-        if(producto == null) { return null; }
+        if(producto == null) return null;
         ProductoDTO dto = new ProductoDTO();
         dto.setId(producto.getId());
         dto.setNombre(producto.getNombre());

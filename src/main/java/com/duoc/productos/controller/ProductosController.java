@@ -2,6 +2,7 @@ package com.duoc.productos.controller;
 
 import com.duoc.productos.dto.ProductoDTO;
 import com.duoc.productos.dto.ProductoRequest;
+import com.duoc.productos.model.Productos;
 import com.duoc.productos.service.ProductosService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,7 +26,9 @@ public class ProductosController {
 
     @GetMapping
     public ResponseEntity<List<ProductoDTO>> listar() {
-        return new ResponseEntity<>(productosService.listar(), HttpStatus.OK);
+        List<ProductoDTO> productos = productosService.listar();
+        if (productos.size() == 0) return new ResponseEntity<>(HttpStatus.NO_CONTENT);
+        return new ResponseEntity<>(productos, HttpStatus.OK);
     }
 
     @GetMapping("/{id}")

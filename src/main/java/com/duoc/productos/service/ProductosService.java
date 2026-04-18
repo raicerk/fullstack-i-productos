@@ -36,14 +36,13 @@ public class ProductosService {
 
 
     public ProductoDTO buscarPorId(Integer id) {
-        Productos producto = productosRepository.findById(id).orElseThrow(() -> new RuntimeException("Producto no encontrado"));
+        Productos producto = productosRepository.findById(id).orElseThrow(() -> new NullPointerException("No existe el producto con el id: " + id));
         return convertirADTO(producto);
     }
 
 
     public ProductoDTO actualizar(Integer id, ProductoRequest request) {
-        Productos productoExistente = productosRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Producto no encontrado"));
+        Productos productoExistente = productosRepository.findById(id).orElseThrow(() -> new NullPointerException("Producto no encontrado"));
 
         productoExistente.setNombre(request.getNombre());
         productoExistente.setCantidad(request.getCantidad());
@@ -59,6 +58,7 @@ public class ProductosService {
 
     // MÉTODO HELPER: Para no repetir código de conversión
     private ProductoDTO convertirADTO(Productos producto) {
+        if(producto == null) { return null; }
         ProductoDTO dto = new ProductoDTO();
         dto.setId(producto.getId());
         dto.setNombre(producto.getNombre());

@@ -30,16 +30,20 @@ public class ProductosController {
 
     @GetMapping("/{id}")
     public ResponseEntity<ProductoDTO> buscarPorId(@PathVariable Integer id) {
-        ProductoDTO productoDTO = productosService.buscarPorId(id);
-        if(productoDTO == null){
+        try{
+            return new ResponseEntity<>(productosService.buscarPorId(id), HttpStatus.OK);
+        }catch(NullPointerException e){
             return new ResponseEntity<>(HttpStatus.NOT_FOUND);
         }
-        return new ResponseEntity<>(productosService.buscarPorId(id), HttpStatus.OK);
     }
 
     @PutMapping("/{id}")
     public ResponseEntity<ProductoDTO> actualizar(@PathVariable Integer id, @Valid @RequestBody ProductoRequest request) {
-        return new ResponseEntity<>(productosService.actualizar(id, request), HttpStatus.OK);
+        try {
+            return new ResponseEntity<>(productosService.actualizar(id, request), HttpStatus.OK);
+        } catch (NullPointerException e) {
+            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+        }
     }
 
     @DeleteMapping("/{id}")

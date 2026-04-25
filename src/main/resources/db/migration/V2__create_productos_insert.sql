@@ -1,0 +1,2 @@
+INSERT INTO productos.productos (cantidad, nombre, precio) values (10, 'Teclado Gamer Razer', 39990);
+INSERT INTO productos.productos (cantidad, nombre, precio) values (20, 'Mouse Gamer Razer', 27990);

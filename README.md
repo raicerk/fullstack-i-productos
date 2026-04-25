@@ -1038,6 +1038,8 @@ El JSON enviado tiene formato inválido. Verifica comillas dobles, tipos de dato
 - [Jakarta Bean Validation](https://jakarta.ee/specifications/bean-validation/)
 - [RESTful Web Services (HTTP Status Codes)](https://developer.mozilla.org/es/docs/Web/HTTP/Status)
 - [Spring Initializr](https://start.spring.io/)
+- [Flyway — Documentación oficial con Spring Boot y MySQL](https://documentation.red-gate.com/flyway/flyway-cli-and-api/usage/api-java/spring-boot)
+- [🎬 Video del curso Fullstack I — Instalación, configuración e implementación de Flyway paso a paso](https://www.youtube.com/watch?v=WSnnJeqGtOQ)
 
 ---
 

@@ -13,6 +13,7 @@ Este ejercicio corresponde al ramo **Fullstack I** para estudiantes de **Ingenie
 - Implementar manejo centralizado de excepciones con excepciones personalizadas
 - Aplicar inyección de dependencias
 - Integrar base de datos MySQL mediante Spring Data JPA
+- Gestionar el esquema de base de datos mediante migraciones con **Flyway**
 - Utilizar el patrón de diseño **CSR (Controller-Service-Repository)**: adaptación de MVC para Spring Boot
 
 ---
@@ -45,6 +46,12 @@ mysql-connector-j
 
 <!-- Lombok (Generación automática de getters, setters, etc.) -->
 lombok
+
+<!-- Flyway Core (Motor de migraciones de base de datos) -->
+flyway-core 10.11.1
+
+<!-- Flyway MySQL (Soporte específico para MySQL) -->
+flyway-mysql 10.11.1
 
 <!-- Spring Boot Starter Test (Pruebas unitarias) -->
 spring-boot-starter-test
@@ -90,7 +97,7 @@ CREATE DATABASE IF NOT EXISTS productos;
 
 ### Clientes de Base de Datos — Ver tablas y datos
 
-Una vez levantado MySQL, puedes conectarte con cualquiera de estas herramientas para explorar la base de datos y ver las tablas que Hibernate crea automáticamente:
+Una vez levantado MySQL, puedes conectarte con cualquiera de estas herramientas para explorar la base de datos y ver las tablas que **Flyway** crea automáticamente al ejecutar las migraciones:
 
 #### 🟠 IntelliJ IDEA (Database Tool Window)
 IntelliJ incluye un cliente de base de datos integrado:
@@ -104,7 +111,7 @@ IntelliJ incluye un cliente de base de datos integrado:
    - **Database**: `productos`
 4. Haz clic en **Test Connection** y luego **OK**
 
-Una vez conectado puedes expandir el esquema y ver la tabla `productos` que Hibernate crea automáticamente al levantar la aplicación.
+Una vez conectado puedes expandir el esquema y ver la tabla `productos` que Flyway crea automáticamente al levantar la aplicación, y también la tabla `flyway_schema_history` que registra las migraciones ejecutadas.
 
 #### 🐬 MySQL Workbench (oficial de Oracle, gratuito)
 Descarga: [dev.mysql.com/downloads/workbench](https://dev.mysql.com/downloads/workbench/)
@@ -128,13 +135,18 @@ spring.datasource.username=root
 spring.datasource.password=my-secret-pw
 spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
 
-spring.jpa.hibernate.ddl-auto=update
+# 'none' delega el manejo del esquema completamente a Flyway
+spring.jpa.hibernate.ddl-auto=none
 spring.jpa.show-sql=true
 spring.jpa.properties.hibernate.format_sql=true
 spring.jpa.database-platform=org.hibernate.dialect.MySQLDialect
+
+# Flyway - Migraciones de base de datos
+spring.flyway.enabled=true
+spring.flyway.repair=true
 ```
 
-> `ddl-auto=update` hace que Hibernate cree la tabla `productos` automáticamente si no existe al iniciar la aplicación.
+> Con `ddl-auto=none` Hibernate **no toca** el esquema de la base de datos. Es Flyway quien crea y versiona las tablas mediante scripts SQL versionados.
 
 ---
 
@@ -161,7 +173,11 @@ productos/
 │   │   │       ├── GlobalExceptionHandler.java   # Manejo centralizado de errores
 │   │   │       └── ProductoNotFoundException.java # Excepción personalizada
 │   │   └── resources/
-│   │       └── application.properties            # Configuración
+│   │       ├── application.properties            # Configuración
+│   │       └── db/
+│   │           └── migration/
+│   │               ├── V1__create_productos_table.sql  # Crea la tabla productos
+│   │               └── V2__create_productos_insert.sql # Datos iniciales de ejemplo
 │   └── test/
 │       └── ProductosApplicationTests.java        # Pruebas
 └── pom.xml                                       # Configuración Maven
@@ -492,6 +508,101 @@ public class GlobalExceptionHandler {
 2. `ProductosService` lanza `ProductoNotFoundException(999)`
 3. `GlobalExceptionHandler` la intercepta automáticamente
 4. Retorna JSON `{"error": "Producto no encontrado con id: 999"}` con status 404
+
+---
+
+### 7. **Migraciones de Base de Datos con Flyway**
+
+#### ¿Por qué usar un sistema de migraciones?
+
+Cuando trabajas con `spring.jpa.hibernate.ddl-auto=update`, Hibernate intenta modificar el esquema de la base de datos automáticamente en cada arranque. Esto es conveniente durante el desarrollo inicial, pero presenta problemas reales en proyectos colaborativos y en producción:
+
+| Problema con `ddl-auto=update` | Solución con Flyway |
+|-------------------------------|---------------------|
+| No hay registro de qué cambios se aplicaron | Historial completo en `flyway_schema_history` |
+| Dos developers pueden tener esquemas distintos | Todos aplican exactamente los mismos scripts en el mismo orden |
+| No se puede replicar el estado exacto de producción | Las migraciones son reproducibles y versionadas |
+| Hibernate no elimina columnas (solo agrega) | Control total sobre ALTER TABLE, DROP, etc. |
+| Sin datos iniciales de forma controlada | Scripts de seed como parte del historial de migraciones |
+
+> **Regla de oro**: En proyectos reales, el esquema de base de datos es código. Debe versionarse, revisarse y aplicarse de forma controlada, igual que el código fuente.
+
+---
+
+#### ¿Cómo funciona Flyway?
+
+Al arrancar la aplicación, Flyway:
+1. Busca scripts SQL en `src/main/resources/db/migration/`
+2. Revisa la tabla `flyway_schema_history` (la crea si no existe) para saber qué migraciones ya se aplicaron
+3. Ejecuta **en orden** solo las migraciones pendientes
+4. Registra cada migración ejecutada con su versión, descripción y checksum
+
+```
+flyway_schema_history
+┌─────────┬─────────────┬─────────────────────────────┬──────────┬────────────┐
+│ version │ description │ script                      │ checksum │ success    │
+├─────────┼─────────────┼─────────────────────────────┼──────────┼────────────┤
+│ 1       │ create...   │ V1__create_productos_table.. │ 12345678 │ true       │
+│ 2       │ create...   │ V2__create_productos_insert. │ 87654321 │ true       │
+└─────────┴─────────────┴─────────────────────────────┴──────────┴────────────┘
+```
+
+---
+
+#### Convención de nombres (obligatoria)
+
+```
+V{versión}__{descripción}.sql
+```
+
+- `V` — prefijo obligatorio (mayúscula)
+- `{versión}` — número de versión (1, 2, 3... o 1.1, 1.2...)
+- `__` — **doble guión bajo** (separador obligatorio)
+- `{descripción}` — texto descriptivo (guiones bajos como espacios)
+
+```
+✅ V1__create_productos_table.sql
+✅ V2__create_productos_insert.sql
+✅ V3__add_column_descripcion.sql
+❌ V1_create_productos_table.sql   (un solo guión bajo — Flyway lo ignora)
+❌ v1__create_table.sql            (v minúscula — no se detecta)
+```
+
+---
+
+#### Scripts de migración en este proyecto
+
+**`V1__create_productos_table.sql`** — Crea la tabla principal:
+```sql
+CREATE TABLE `productos` (
+  `id`       int NOT NULL AUTO_INCREMENT,
+  `cantidad` int DEFAULT NULL,
+  `nombre`   varchar(255) NOT NULL,
+  `precio`   int DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
+**`V2__create_productos_insert.sql`** — Inserta datos iniciales de ejemplo:
+```sql
+INSERT INTO productos.productos (cantidad, nombre, precio) VALUES (10, 'Teclado Gamer Razer', 39990);
+INSERT INTO productos.productos (cantidad, nombre, precio) VALUES (20, 'Mouse Gamer Razer', 27990);
+```
+
+---
+
+#### Configuración en `application.properties`
+
+```properties
+# Delega el esquema completamente a Flyway (no tocar con Hibernate)
+spring.jpa.hibernate.ddl-auto=none
+
+# Flyway
+spring.flyway.enabled=true
+spring.flyway.repair=true  # Repara migraciones fallidas (útil en desarrollo)
+```
+
+> `spring.flyway.repair=true` permite que Flyway repare entradas fallidas en `flyway_schema_history`. Útil durante el desarrollo, pero debe evaluarse en producción.
 
 ---
 
@@ -858,9 +969,10 @@ Previene procesamiento de datos inválidos antes de llegar al servicio.
 ### 7. **Versionamiento de API**
 `/api/v1/productos` permite evolucionar la API sin romper clientes existentes.
 
----
+### 8. **Sistema de Migraciones (Flyway)**
+Usar Flyway en lugar de `ddl-auto=update` garantiza que todos los entornos (desarrollo, pruebas, producción) tienen exactamente el mismo esquema, con un historial auditable de todos los cambios aplicados.
 
-## 📖 Ejercicios Propuestos
+---
 
 ### Nivel 1: Básico
 1. Agregar un campo `descripcion` a `Productos` con validación `@NotBlank`
@@ -891,7 +1003,7 @@ Si usas MySQL local:
 ```sql
 CREATE DATABASE IF NOT EXISTS productos;
 ```
-> ⚠️ Hibernate crea las **tablas** automáticamente, pero **NO crea la base de datos**. Debes crearla manualmente una sola vez.
+> ⚠️ Hibernate **no crea las tablas** cuando se usa Flyway con `ddl-auto=none`. Es Flyway quien las crea al ejecutar `V1__create_productos_table.sql`. Debes crear la base de datos manualmente una sola vez.
 
 ---
 

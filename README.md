@@ -644,6 +644,8 @@ cd productos
 
 ## ✅ Paso a Paso para Ejecutar el Proyecto
 
+### Opción A: Ejecución local con Maven
+
 ### Paso 1: Clonar o Descargar el Proyecto
 ```bash
 cd tu-directorio
@@ -681,6 +683,97 @@ mvn spring-boot:run
 ```
 
 La aplicación estará disponible en: `http://localhost:8080`
+
+---
+
+### Opción B: Ejecución con Docker 🐳
+
+Esta opción empaqueta y ejecuta toda la aplicación dentro de contenedores Docker. No necesitas tener Java ni Maven instalados localmente.
+
+#### Requisitos
+- **Docker Desktop** instalado y corriendo
+
+#### Paso 1: Levantar MySQL con Docker
+
+Si aún no tienes el contenedor de MySQL, créalo:
+
+```bash
+docker run --name some-mysql \
+  -p 3306:3306 \
+  -e MYSQL_ROOT_PASSWORD=my-secret-pw \
+  -d mysql
+```
+
+Luego crea la base de datos:
+
+```bash
+docker exec -it some-mysql mysql -uroot -pmy-secret-pw \
+  -e "CREATE DATABASE IF NOT EXISTS productos;"
+```
+
+#### Paso 2: Construir la imagen de la API
+
+Desde la raíz del proyecto (donde está el `Dockerfile`):
+
+```bash
+docker build -t productos-api .
+```
+
+Esto ejecuta una compilación en **dos etapas**:
+1. **Builder**: Usa una imagen con JDK 21 para compilar el proyecto con Maven y generar el JAR
+2. **Runtime**: Copia solo el JAR a una imagen liviana con JRE 21 (sin herramientas de compilación)
+
+> La primera vez tarda un par de minutos mientras descarga dependencias. Las siguientes compilaciones son mucho más rápidas gracias al caché de capas de Docker.
+
+#### Paso 3: Ejecutar la API especificando el puerto
+
+```bash
+docker run --name productos-api \
+  -p 8080:8080 \
+  -e SPRING_DATASOURCE_URL="jdbc:mysql://host.docker.internal:3306/productos?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" \
+  -e SPRING_DATASOURCE_USERNAME=root \
+  -e SPRING_DATASOURCE_PASSWORD=my-secret-pw \
+  productos-api
+```
+
+| Parámetro | Descripción |
+|-----------|-------------|
+| `-p 8080:8080` | Mapea el puerto `8080` del contenedor al puerto `8080` de tu máquina. Cambia el primer número para usar otro puerto local (ej: `-p 9090:8080`) |
+| `host.docker.internal` | Dirección especial que permite al contenedor conectarse a servicios en tu máquina local (MySQL) |
+| `-e SPRING_DATASOURCE_*` | Sobreescribe las variables del `application.properties` sin modificar el código |
+
+**Salida esperada**:
+```
+Started ProductosApplication in 3.2 seconds
+```
+
+La aplicación estará disponible en: `http://localhost:8080`
+
+#### Cambiar el puerto de la API
+
+Si el puerto `8080` está ocupado, cambia solo el lado izquierdo del `-p`:
+
+```bash
+# Levantar la API en el puerto 9090
+docker run --name productos-api \
+  -p 9090:8080 \
+  -e SPRING_DATASOURCE_URL="jdbc:mysql://host.docker.internal:3306/productos?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" \
+  -e SPRING_DATASOURCE_USERNAME=root \
+  -e SPRING_DATASOURCE_PASSWORD=my-secret-pw \
+  productos-api
+```
+
+La API estará disponible en: `http://localhost:9090`
+
+#### Comandos útiles de Docker
+
+```bash
+docker stop productos-api      # Detener el contenedor
+docker start productos-api     # Reiniciar el contenedor
+docker logs productos-api      # Ver logs de la aplicación
+docker rm productos-api        # Eliminar el contenedor (requiere stop previo)
+docker rmi productos-api       # Eliminar la imagen
+```
 
 ---
 

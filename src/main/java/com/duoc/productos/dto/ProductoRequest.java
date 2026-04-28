@@ -16,4 +16,7 @@ public class ProductoRequest {
     @Positive(message = "El precio debe ser mayor a cero")
     @NotNull(message = "El precio es obligatorio")
     private Integer precio;
+
+    @NotBlank(message = "La categoría no puede estar vacía")
+    private String categoria;
 }

@@ -14,6 +14,7 @@ Este ejercicio corresponde al ramo **Fullstack I** para estudiantes de **Ingenie
 - Aplicar inyección de dependencias
 - Integrar base de datos MySQL mediante Spring Data JPA
 - Gestionar el esquema de base de datos mediante migraciones con **Flyway**
+- Consumir APIs externas desde el Service mediante **OpenFeign**
 - Utilizar el patrón de diseño **CSR (Controller-Service-Repository)**: adaptación de MVC para Spring Boot
 
 ---
@@ -52,6 +53,9 @@ flyway-core 10.11.1
 
 <!-- Flyway MySQL (Soporte específico para MySQL) -->
 flyway-mysql 10.11.1
+
+<!-- Spring Cloud OpenFeign (Consumo declarativo de APIs externas) -->
+spring-cloud-starter-openfeign
 
 <!-- Spring Boot Starter Test (Pruebas unitarias) -->
 spring-boot-starter-test
@@ -157,10 +161,13 @@ productos/
 ├── src/
 │   ├── main/
 │   │   ├── java/com/duoc/productos/
-│   │   │   ├── ProductosApplication.java         # Punto de entrada
+│   │   │   ├── ProductosApplication.java         # Punto de entrada (@EnableFeignClients)
+│   │   │   ├── client/
+│   │   │   │   └── CategoriaClient.java          # Cliente Feign para Platzi API
 │   │   │   ├── controller/
 │   │   │   │   └── ProductosController.java      # Endpoints REST
 │   │   │   ├── dto/
+│   │   │   │   ├── CategoriaDTO.java             # Respuesta de la API externa
 │   │   │   │   ├── ProductoDTO.java              # Respuesta al cliente
 │   │   │   │   └── ProductoRequest.java          # Datos de entrada con validaciones
 │   │   │   ├── model/
@@ -171,13 +178,15 @@ productos/
 │   │   │   │   └── ProductosRepository.java      # Acceso a datos (JPA)
 │   │   │   └── exception/
 │   │   │       ├── GlobalExceptionHandler.java   # Manejo centralizado de errores
-│   │   │       └── ProductoNotFoundException.java # Excepción personalizada
+│   │   │       ├── ProductoNotFoundException.java # Excepción para producto no encontrado
+│   │   │       └── CategoriaNotFoundException.java # Excepción para categoría inválida
 │   │   └── resources/
 │   │       ├── application.properties            # Configuración
 │   │       └── db/
 │   │           └── migration/
 │   │               ├── V1__create_productos_table.sql  # Crea la tabla productos
-│   │               └── V2__create_productos_insert.sql # Datos iniciales de ejemplo
+│   │               ├── V2__create_productos_insert.sql # Datos iniciales de ejemplo
+│   │               └── V3__add_column_categoria.sql    # Agrega columna categoria
 │   └── test/
 │       └── ProductosApplicationTests.java        # Pruebas
 └── pom.xml                                       # Configuración Maven
@@ -438,7 +447,7 @@ public ResponseEntity<List<ProductoDTO>> listar(@RequestParam(required = false) 
 | **201** | Created | Recurso creado | POST exitoso |
 | **204** | No Content | Sin contenido | GET con lista vacía, DELETE exitoso |
 | **400** | Bad Request | Datos inválidos | Validaciones fallidas |
-| **404** | Not Found | Recurso no encontrado | ID inexistente en GET, PUT, DELETE |
+| **404** | Not Found | Recurso no encontrado | ID inexistente en GET, PUT, DELETE — categoría inválida en POST, PUT |
 
 ```java
 // 201 - Crear producto
@@ -508,6 +517,40 @@ public class GlobalExceptionHandler {
 2. `ProductosService` lanza `ProductoNotFoundException(999)`
 3. `GlobalExceptionHandler` la intercepta automáticamente
 4. Retorna JSON `{"error": "Producto no encontrado con id: 999"}` con status 404
+
+#### `CategoriaNotFoundException`
+**Ubicación**: [CategoriaNotFoundException.java](src/main/java/com/duoc/productos/exception/CategoriaNotFoundException.java)
+
+```java
+public class CategoriaNotFoundException extends RuntimeException {
+    public CategoriaNotFoundException(String nombre) {
+        super("Categoria no encontrada con nombre: " + nombre);
+    }
+}
+```
+
+**¿Qué hace?**
+- Se lanza desde `ProductosService` cuando la categoría enviada no existe en la Platzi API
+- El mensaje incluye el nombre de la categoría buscada para mayor claridad
+
+**Handler en `GlobalExceptionHandler`:**
+
+```java
+@ExceptionHandler(CategoriaNotFoundException.class)
+public ResponseEntity<Map<String, String>> handleCategoriaNotFound(CategoriaNotFoundException ex) {
+    Map<String, String> error = new HashMap<>();
+    error.put("error", ex.getMessage());
+    return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+}
+```
+
+**¿Cómo funciona el flujo?**
+
+1. Cliente envía `POST /api/v1/productos` con `"categoria": "Deportes"` (no existe en Platzi)
+2. `ProductosService` llama a `CategoriaClient` → obtiene la lista de categorías válidas
+3. `"Deportes"` no está en la lista → lanza `CategoriaNotFoundException("Deportes")`
+4. `GlobalExceptionHandler` la intercepta automáticamente
+5. Retorna JSON `{"error": "Categoria no encontrada con nombre: Deportes"}` con status 404
 
 ---
 
@@ -603,6 +646,124 @@ spring.flyway.repair=true  # Repara migraciones fallidas (útil en desarrollo)
 ```
 
 > `spring.flyway.repair=true` permite que Flyway repare entradas fallidas en `flyway_schema_history`. Útil durante el desarrollo, pero debe evaluarse en producción.
+
+---
+
+### 8. **Consumo de APIs Externas con OpenFeign**
+
+#### ¿Por qué consumir una API externa?
+
+En aplicaciones reales, no toda la información vive en tu propia base de datos. A veces necesitas **delegar responsabilidades a servicios externos**: validar datos, obtener información de terceros, o comunicarte con otros microservicios.
+
+En este proyecto, en lugar de mantener una lista de categorías hardcodeada en el código, consultamos la **Platzi Fake Store API** para obtener las categorías válidas en tiempo real. Así, al crear o actualizar un producto, validamos que la categoría enviada sea real:
+
+```
+POST /api/v1/productos  →  ProductosService  →  CategoriaClient  →  api.escuelajs.co
+                                                     ↓
+                                          ["Ropa", "Electrónica", "Muebles"...]
+                                                     ↓
+                                        ¿"Electrónica" está en la lista? ✅ → guardar
+                                        ¿"Xyz" está en la lista?         ❌ → error 500
+```
+
+---
+
+#### Repository vs FeignClient — son lo mismo para el Service
+
+Este es uno de los conceptos más importantes de este ejercicio. Observa cómo el `ProductosService` usa **dos dependencias inyectadas**:
+
+```java
+@Autowired
+private ProductosRepository productosRepository;  // Accede a MySQL
+
+@Autowired
+private CategoriaClient categoriaClient;          // Accede a Platzi API
+```
+
+Para el Service, **ambos son exactamente lo mismo**: reciben una llamada y devuelven objetos Java. La diferencia es solo de dónde vienen los datos:
+
+| | `ProductosRepository` | `CategoriaClient` |
+|---|---|---|
+| **¿Qué es?** | Interfaz JPA | Interfaz Feign |
+| **¿De dónde trae datos?** | Base de datos MySQL | API externa (internet) |
+| **¿Qué devuelve?** | `Productos`, `List<Productos>` | `List<CategoriaDTO>` |
+| **¿Cómo se inyecta?** | `@Autowired` | `@Autowired` |
+| **¿Quién genera la implementación?** | Spring Data JPA | Spring Cloud OpenFeign |
+
+> El Service **no sabe** (ni le importa) si los datos vienen de una base de datos o de internet. Solo sabe que tiene una dependencia que le devuelve lo que necesita. Esto es la **inyección de dependencias** llevada a su máxima expresión.
+
+---
+
+#### Configuración necesaria
+
+**1. Habilitar Feign en el punto de entrada:**
+
+```java
+@SpringBootApplication
+@EnableFeignClients               // Activa el escaneo de interfaces @FeignClient
+public class ProductosApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(ProductosApplication.class, args);
+    }
+}
+```
+
+**2. Declarar el cliente con `@FeignClient`:**
+**Ubicación**: [CategoriaClient.java](src/main/java/com/duoc/productos/client/CategoriaClient.java)
+
+```java
+@FeignClient(name = "platzi-store", url = "${platzi.api.url:https://api.escuelajs.co/api/v1}")
+public interface CategoriaClient {
+
+    @GetMapping("/categories")
+    List<CategoriaDTO> obtenerCategorias();
+}
+```
+
+**¿Qué hace `@FeignClient`?**
+- Marca la interfaz como cliente HTTP declarativo
+- `name`: identificador interno del cliente
+- `url`: dirección base de la API (se puede configurar en `application.properties`)
+- Spring genera automáticamente la implementación en tiempo de ejecución — **no escribes ningún código HTTP**
+
+**3. DTO para mapear la respuesta de la API:**
+**Ubicación**: [CategoriaDTO.java](src/main/java/com/duoc/productos/dto/CategoriaDTO.java)
+
+```java
+@Data
+public class CategoriaDTO {
+    private Integer id;
+    private String name;
+}
+```
+
+Feign deserializa automáticamente el JSON de la API al objeto Java:
+```json
+[
+  { "id": 1, "name": "Ropa" },
+  { "id": 2, "name": "Electrónica" },
+  { "id": 3, "name": "Muebles" }
+]
+```
+
+**4. Uso en el Service:**
+
+```java
+private void validarCategoria(String categoria) {
+    List<CategoriaDTO> categorias = categoriaClient.obtenerCategorias(); // llama a la API
+    boolean existe = categorias.stream()
+            .anyMatch(c -> c.getName().equalsIgnoreCase(categoria));
+    if (!existe) {
+        throw new RuntimeException("Categoría no válida: " + categoria);
+    }
+}
+```
+
+**5. URL configurable en `application.properties`:**
+
+```properties
+platzi.api.url=https://api.escuelajs.co/api/v1
+```
 
 ---
 
@@ -1065,6 +1226,9 @@ Previene procesamiento de datos inválidos antes de llegar al servicio.
 ### 8. **Sistema de Migraciones (Flyway)**
 Usar Flyway en lugar de `ddl-auto=update` garantiza que todos los entornos (desarrollo, pruebas, producción) tienen exactamente el mismo esquema, con un historial auditable de todos los cambios aplicados.
 
+### 9. **Validación contra Servicio Externo (OpenFeign)**
+Delegar a una API de terceros la validación de datos de dominio (categorías) en lugar de mantener una lista hardcodeada en el código. El `CategoriaClient` se inyecta en el Service igual que el `ProductosRepository`: Spring genera la implementación, el Service solo consume el resultado.
+
 ---
 
 ### Nivel 1: Básico
@@ -1133,6 +1297,8 @@ El JSON enviado tiene formato inválido. Verifica comillas dobles, tipos de dato
 - [Spring Initializr](https://start.spring.io/)
 - [Flyway — Documentación oficial con Spring Boot y MySQL](https://documentation.red-gate.com/flyway/flyway-cli-and-api/usage/api-java/spring-boot)
 - [🎬 Video del curso Fullstack I — Instalación, configuración e implementación de Flyway paso a paso](https://www.youtube.com/watch?v=WSnnJeqGtOQ)
+- [Spring Cloud OpenFeign — Documentación oficial](https://docs.spring.io/spring-cloud-openfeign/docs/current/reference/html/)
+- [Platzi Fake Store API — Categorías en español](https://api.escuelajs.co/api/v1/categories)
 
 ---
 

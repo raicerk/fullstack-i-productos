@@ -22,4 +22,7 @@ public class Productos {
     private Integer cantidad;
 
     private Integer precio;
+
+    @Column(nullable = false)
+    private String categoria;
 }

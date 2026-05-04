@@ -894,7 +894,7 @@ docker run --name productos-api \
   -e SPRING_DATASOURCE_URL="jdbc:mysql://host.docker.internal:3306/productos?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" \
   -e SPRING_DATASOURCE_USERNAME=root \
   -e SPRING_DATASOURCE_PASSWORD=my-secret-pw \
-  productos-api
+  -d productos-api
 ```
 
 | Parámetro | Descripción |

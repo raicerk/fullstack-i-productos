@@ -16,6 +16,7 @@ Este ejercicio corresponde al ramo **Fullstack I** para estudiantes de **Ingenie
 - Gestionar el esquema de base de datos mediante migraciones con **Flyway**
 - Consumir APIs externas desde el Service mediante **OpenFeign**
 - Utilizar el patrón de diseño **CSR (Controller-Service-Repository)**: adaptación de MVC para Spring Boot
+- Implementar **logging** con SLF4J y Logback para registrar eventos importantes de la aplicación
 
 ---
 
@@ -148,6 +149,15 @@ spring.jpa.database-platform=org.hibernate.dialect.MySQLDialect
 # Flyway - Migraciones de base de datos
 spring.flyway.enabled=true
 spring.flyway.repair=true
+
+# Configuración de logs
+logging.level.root=info
+logging.level.com.duoc.productos=info
+logging.pattern.console=%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n
+logging.pattern.file=%d{yyyy-MM-dd HH:mm:ss} - %msg%n
+logging.file.name=logs/productos.log
+logging.logback.rollingpolicy.max-file-size=10MB
+logging.logback.rollingpolicy.max-history=7
 ```
 
 > Con `ddl-auto=none` Hibernate **no toca** el esquema de la base de datos. Es Flyway quien crea y versiona las tablas mediante scripts SQL versionados.
@@ -767,6 +777,192 @@ platzi.api.url=https://api.escuelajs.co/api/v1
 
 ---
 
+### 9. **Logging con SLF4J y `@Slf4j`**
+
+#### ¿Qué es el logging y por qué es importante?
+
+El **logging** (registro de eventos) es la práctica de anotar lo que está ocurriendo dentro de la aplicación mientras se ejecuta. En lugar de usar `System.out.println()`, usamos un framework de logging que permite:
+
+- Controlar el **nivel de detalle** de los mensajes
+- Escribir los mensajes tanto en la **consola** como en un **archivo**
+- **Rotar archivos** automáticamente cuando se llenan
+- Apagar o encender mensajes según el entorno (desarrollo, producción)
+
+> Imagina que tu aplicación en producción falla a las 3 AM. Si no tienes logs, ¿cómo sabrás qué pasó? Los logs son como la caja negra de un avión: registran todo para que puedas investigar después.
+
+---
+
+#### La anotación `@Slf4j` de Lombok
+
+En lugar de crear manualmente el objeto de logging, Lombok lo genera automáticamente con la anotación `@Slf4j`:
+
+```java
+// Sin Lombok (verboso, repetitivo)
+private static final Logger log = LoggerFactory.getLogger(ProductosController.class);
+
+// Con Lombok @Slf4j (equivalente, pero automático)
+@Slf4j
+@RestController
+public class ProductosController {
+    // Ya tienes disponible la variable "log" sin escribir nada más
+}
+```
+
+**¿Qué hace `@Slf4j`?**
+- Genera automáticamente una variable `log` de tipo `org.slf4j.Logger`
+- El nombre de la clase se usa como identificador del logger (útil para filtrar logs)
+- Es una de las integraciones de Lombok más utilizadas en proyectos Spring Boot
+
+---
+
+#### Niveles de Log
+
+Los mensajes de log tienen diferentes niveles de importancia, de menor a mayor:
+
+| Nivel | Método | ¿Cuándo usarlo? |
+|-------|--------|-----------------|
+| `TRACE` | `log.trace()` | Información muy detallada (flujo interno paso a paso) |
+| `DEBUG` | `log.debug()` | Información útil para depurar durante desarrollo |
+| `INFO` | `log.info()` | Eventos normales de la aplicación (algo sucedió correctamente) |
+| `WARN` | `log.warn()` | Algo inesperado ocurrió, pero la aplicación sigue funcionando |
+| `ERROR` | `log.error()` | Un error ocurrió y debe investigarse |
+
+> Con `logging.level.root=info` en `application.properties`, solo verás los niveles `INFO`, `WARN` y `ERROR`. Los niveles `DEBUG` y `TRACE` quedan silenciados.
+
+---
+
+#### Uso en este proyecto
+
+**En `ProductosController`** — Registrar cada request que llega:
+
+```java
+@Slf4j
+@RestController
+@RequestMapping("/api/v1/productos")
+public class ProductosController {
+
+    @PostMapping
+    public ResponseEntity<ProductoDTO> guardar(@Valid @RequestBody ProductoRequest request) {
+        log.info("El request para crear un producto fue: " + request);
+        return new ResponseEntity<>(productosService.guardar(request), HttpStatus.CREATED);
+    }
+}
+```
+
+**En `ProductosService`** — Confirmar que la operación fue exitosa:
+
+```java
+@Slf4j
+@Service
+public class ProductosService {
+
+    public ProductoDTO guardar(ProductoRequest request) {
+        // ... lógica de negocio ...
+        log.info("Producto almacenado correctamente: " + producto);
+        return convertirADTO(productosRepository.save(producto));
+    }
+}
+```
+
+**En `GlobalExceptionHandler`** — Registrar los errores que ocurren:
+
+```java
+@Slf4j
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String, String>> handleValidationErrors(...) {
+        // ...
+        log.error("Error: {}", errores);          // Error de validación de datos
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errores);
+    }
+
+    @ExceptionHandler(ProductoNotFoundException.class)
+    public ResponseEntity<Map<String, String>> handleNotFound(ProductoNotFoundException ex) {
+        // ...
+        log.error("Error: {}", error);            // Producto no encontrado
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    @ExceptionHandler(CategoriaNotFoundException.class)
+    public ResponseEntity<Map<String, String>> handleCategoriaNotFound(CategoriaNotFoundException ex) {
+        // ...
+        log.warn("Validation error: {}", error);  // Categoría no válida (advertencia)
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+}
+```
+
+> **¿Por qué `log.warn()` para la categoría y `log.error()` para los demás?**
+> Porque una categoría inválida puede ser simplemente un error del usuario (envió mal el dato), mientras que un producto no encontrado o datos de validación fallidos pueden indicar un problema más grave en la integración.
+
+---
+
+#### Configuración de logging en `application.properties`
+
+```properties
+# Nivel global para toda la aplicación (INFO y superiores aparecen en los logs)
+logging.level.root=info
+
+# Nivel específico para las clases de este proyecto
+# Permite cambiar solo el nivel de tus clases sin afectar las de Spring o librerías
+logging.level.com.duoc.productos=info
+
+# Formato de los mensajes en la consola
+# %d{...}   → fecha y hora
+# [%thread] → nombre del hilo de ejecución
+# %-5level  → nivel del log alineado a 5 caracteres (INFO , WARN , ERROR)
+# %logger{36} → nombre de la clase que generó el log (máx. 36 chars)
+# %msg%n    → el mensaje + salto de línea
+logging.pattern.console=%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n
+
+# Formato más simple para el archivo (sin nivel ni hilo, para que sea más legible)
+logging.pattern.file=%d{yyyy-MM-dd HH:mm:ss} - %msg%n
+
+# Ruta y nombre del archivo donde se guardan los logs
+# Se crea automáticamente en la carpeta "logs/" dentro del proyecto
+logging.file.name=logs/productos.log
+
+# Tamaño máximo de cada archivo de log antes de rotar (crear uno nuevo)
+logging.logback.rollingpolicy.max-file-size=10MB
+
+# Cantidad máxima de archivos de log históricos a conservar (7 días de historial)
+logging.logback.rollingpolicy.max-history=7
+```
+
+#### Rotación de archivos de log
+
+Cuando el archivo `productos.log` llega a 10 MB, Spring Boot lo archiva automáticamente y crea uno nuevo. Con `max-history=7`, se conservan los últimos 7 archivos, eliminando los más antiguos.
+
+```
+logs/
+├── productos.log            ← archivo activo (el que se está escribiendo)
+├── productos.log.2026-06-01.gz  ← archivos comprimidos anteriores
+├── productos.log.2026-06-02.gz
+└── ...
+```
+
+> La carpeta `logs/` está agregada en `.gitignore` para que no se suba al repositorio. Los logs son datos de ejecución, no código fuente.
+
+---
+
+#### ¿Cómo se ve un log en la consola?
+
+Cuando creas un producto, verás algo así en la consola:
+
+```
+2026-06-06 10:35:22 [http-nio-8080-exec-1] INFO  c.d.p.controller.ProductosController - El request para crear un producto fue: ProductoRequest(nombre=Leche, cantidad=10, precio=1500, categoria=Electronics)
+2026-06-06 10:35:22 [http-nio-8080-exec-1] INFO  c.d.p.service.ProductosService - Producto almacenado correctamente: Productos(id=1, nombre=Leche, ...)
+```
+
+Si hay un error de validación:
+```
+2026-06-06 10:35:40 [http-nio-8080-exec-2] ERROR c.d.p.exception.GlobalExceptionHandler - Error: {nombre=El nombre no puede estar vacío}
+```
+
+---
+
 ## 🚀 Crear un Nuevo Proyecto con Spring Initializr
 
 ### Opción 1: Web (Recomendado para principiantes)
@@ -1229,6 +1425,15 @@ Usar Flyway en lugar de `ddl-auto=update` garantiza que todos los entornos (desa
 ### 9. **Validación contra Servicio Externo (OpenFeign)**
 Delegar a una API de terceros la validación de datos de dominio (categorías) en lugar de mantener una lista hardcodeada en el código. El `CategoriaClient` se inyecta en el Service igual que el `ProductosRepository`: Spring genera la implementación, el Service solo consume el resultado.
 
+### 10. **Logging Estructurado con SLF4J**
+Usar `@Slf4j` y los diferentes niveles de log (`INFO`, `WARN`, `ERROR`) en lugar de `System.out.println()`. Los logs se guardan en archivo con rotación automática (`logs/productos.log`), lo que permite auditar el comportamiento de la aplicación sin detenerla.
+
+```java
+log.info("...");   // Eventos normales — flujo exitoso
+log.warn("...");   // Situaciones inesperadas pero controladas
+log.error("...");  // Errores que deben investigarse
+```
+
 ---
 
 ### Nivel 1: Básico
@@ -1299,6 +1504,10 @@ El JSON enviado tiene formato inválido. Verifica comillas dobles, tipos de dato
 - [🎬 Video del curso Fullstack I — Instalación, configuración e implementación de Flyway paso a paso](https://www.youtube.com/watch?v=WSnnJeqGtOQ)
 - [Spring Cloud OpenFeign — Documentación oficial](https://docs.spring.io/spring-cloud-openfeign/docs/current/reference/html/)
 - [Platzi Fake Store API — Categorías en español](https://api.escuelajs.co/api/v1/categories)
+- [SLF4J — Manual oficial (Simple Logging Facade for Java)](https://www.slf4j.org/manual.html)
+- [Logback — Documentación oficial (motor de logs usado por Spring Boot)](https://logback.qos.ch/documentation.html)
+- [Spring Boot Logging — Referencia oficial](https://docs.spring.io/spring-boot/docs/current/reference/html/features.html#features.logging)
+- [Lombok `@Slf4j` — Documentación](https://projectlombok.org/features/log)
 
 ---
 
@@ -1308,4 +1517,4 @@ Este proyecto es de código abierto y está disponible bajo la licencia MIT, dis
 
 ---
 
-**Última actualización**: Abril 2026
+**Última actualización**: Junio 2026

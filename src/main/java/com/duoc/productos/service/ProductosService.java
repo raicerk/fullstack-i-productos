@@ -8,12 +8,14 @@ import com.duoc.productos.exception.CategoriaNotFoundException;
 import com.duoc.productos.exception.ProductoNotFoundException;
 import com.duoc.productos.model.Productos;
 import com.duoc.productos.repository.ProductosRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class ProductosService {
 
@@ -32,6 +34,7 @@ public class ProductosService {
         producto.setPrecio(request.getPrecio());
         producto.setCategoria(request.getCategoria());
 
+        log.info("Producto almacenado correctamente: " + producto);
         return convertirADTO(productosRepository.save(producto));
     }
 

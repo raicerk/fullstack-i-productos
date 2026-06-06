@@ -4,6 +4,7 @@ import com.duoc.productos.dto.ProductoDTO;
 import com.duoc.productos.dto.ProductoRequest;
 import com.duoc.productos.service.ProductosService;
 import jakarta.validation.Valid;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/v1/productos")
 public class ProductosController {
@@ -20,6 +22,7 @@ public class ProductosController {
 
     @PostMapping
     public ResponseEntity<ProductoDTO> guardar(@Valid @RequestBody ProductoRequest request) {
+        log.info("El request para crear un producto fue: " + request);
         return new ResponseEntity<>(productosService.guardar(request), HttpStatus.CREATED);
     }
 

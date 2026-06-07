@@ -364,6 +364,9 @@ public class ProductoRequest {
     @NotNull(message = "El precio es obligatorio")
     @Positive(message = "El precio debe ser mayor a cero")
     private Integer precio;
+
+    @NotBlank(message = "La categoría no puede estar vacía")
+    private String categoria;
 }
 ```
 
@@ -377,6 +380,7 @@ public class ProductoDTO {
     private String nombre;
     private Integer cantidad;
     private Integer precio;
+    private String categoria;
 }
 ```
 
@@ -638,7 +642,7 @@ V{versión}__{descripción}.sql
 ```
 ✅ V1__create_productos_table.sql
 ✅ V2__create_productos_insert.sql
-✅ V3__add_column_descripcion.sql
+✅ V3__add_column_categoria.sql
 ❌ V1_create_productos_table.sql   (un solo guión bajo — Flyway lo ignora)
 ❌ v1__create_table.sql            (v minúscula — no se detecta)
 ```
@@ -663,6 +667,13 @@ CREATE TABLE `productos` (
 INSERT INTO productos.productos (cantidad, nombre, precio) VALUES (10, 'Teclado Gamer Razer', 39990);
 INSERT INTO productos.productos (cantidad, nombre, precio) VALUES (20, 'Mouse Gamer Razer', 27990);
 ```
+
+**`V3__add_column_categoria.sql`** — Agrega la columna `categoria` a la tabla:
+```sql
+ALTER TABLE productos ADD COLUMN categoria VARCHAR(100) NOT NULL DEFAULT 'Sin categoría';
+```
+
+> Esta migración añade el campo `categoria` que se valida contra la Platzi Fake Store API. El valor `DEFAULT 'Sin categoría'` permite que los registros existentes tengan un valor válido al agregar la columna.
 
 ---
 
@@ -695,7 +706,7 @@ POST /api/v1/productos  →  ProductosService  →  CategoriaClient  →  api.es
                                           ["Ropa", "Electrónica", "Muebles"...]
                                                      ↓
                                         ¿"Electrónica" está en la lista? ✅ → guardar
-                                        ¿"Xyz" está en la lista?         ❌ → error 500
+                                        ¿"Xyz" está en la lista?         ❌ → error 404
 ```
 
 ---
@@ -786,7 +797,7 @@ private void validarCategoria(String categoria) {
     boolean existe = categorias.stream()
             .anyMatch(c -> c.getName().equalsIgnoreCase(categoria));
     if (!existe) {
-        throw new RuntimeException("Categoría no válida: " + categoria);
+        throw new CategoriaNotFoundException(categoria);
     }
 }
 ```
@@ -1594,7 +1605,8 @@ curl -X POST http://localhost:8080/api/v1/productos \
   -d '{
     "nombre": "Leche",
     "cantidad": 10,
-    "precio": 1500
+    "precio": 1500,
+    "categoria": "Electronics"
   }'
 ```
 
@@ -1604,7 +1616,8 @@ curl -X POST http://localhost:8080/api/v1/productos \
     "id": 1,
     "nombre": "Leche",
     "cantidad": 10,
-    "precio": 1500
+    "precio": 1500,
+    "categoria": "Electronics"
 }
 ```
 
@@ -1617,7 +1630,8 @@ curl -X POST http://localhost:8080/api/v1/productos \
   -d '{
     "nombre": "",
     "cantidad": -5,
-    "precio": null
+    "precio": null,
+    "categoria": ""
   }'
 ```
 
@@ -1626,7 +1640,8 @@ curl -X POST http://localhost:8080/api/v1/productos \
 {
     "nombre": "El nombre no puede estar vacío",
     "cantidad": "La cantidad debe ser mayor a cero",
-    "precio": "El precio es obligatorio"
+    "precio": "El precio es obligatorio",
+    "categoria": "La categoría no puede estar vacía"
 }
 ```
 
@@ -1644,7 +1659,8 @@ curl -X GET http://localhost:8080/api/v1/productos
         "id": 1,
         "nombre": "Leche",
         "cantidad": 10,
-        "precio": 1500
+        "precio": 1500,
+        "categoria": "Electronics"
     }
 ]
 ```
@@ -1663,7 +1679,8 @@ curl -X GET "http://localhost:8080/api/v1/productos?nombre=leche"
         "id": 1,
         "nombre": "Leche",
         "cantidad": 10,
-        "precio": 1500
+        "precio": 1500,
+        "categoria": "Electronics"
     }
 ]
 ```
@@ -1681,7 +1698,8 @@ curl -X GET http://localhost:8080/api/v1/productos/1
     "id": 1,
     "nombre": "Leche",
     "cantidad": 10,
-    "precio": 1500
+    "precio": 1500,
+    "categoria": "Electronics"
 }
 ```
 
@@ -1701,7 +1719,8 @@ curl -X PUT http://localhost:8080/api/v1/productos/1 \
   -d '{
     "nombre": "Leche Descremada",
     "cantidad": 20,
-    "precio": 1800
+    "precio": 1800,
+    "categoria": "Electronics"
   }'
 ```
 
@@ -1711,7 +1730,8 @@ curl -X PUT http://localhost:8080/api/v1/productos/1 \
     "id": 1,
     "nombre": "Leche Descremada",
     "cantidad": 20,
-    "precio": 1800
+    "precio": 1800,
+    "categoria": "Electronics"
 }
 ```
 

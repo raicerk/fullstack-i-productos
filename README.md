@@ -17,6 +17,7 @@ Este ejercicio corresponde al ramo **Fullstack I** para estudiantes de **Ingenie
 - Consumir APIs externas desde el Service mediante **OpenFeign**
 - Utilizar el patrón de diseño **CSR (Controller-Service-Repository)**: adaptación de MVC para Spring Boot
 - Implementar **logging** con SLF4J y Logback para registrar eventos importantes de la aplicación
+- Documentar la API con **Swagger UI** usando SpringDoc OpenAPI para que otros desarrolladores puedan explorar y probar los endpoints
 
 ---
 
@@ -57,6 +58,9 @@ flyway-mysql 10.11.1
 
 <!-- Spring Cloud OpenFeign (Consumo declarativo de APIs externas) -->
 spring-cloud-starter-openfeign
+
+<!-- SpringDoc OpenAPI UI (Documentación Swagger automática) -->
+springdoc-openapi-starter-webmvc-ui 2.6.0
 
 <!-- Spring Boot Starter Test (Pruebas unitarias) -->
 spring-boot-starter-test
@@ -158,6 +162,11 @@ logging.pattern.file=%d{yyyy-MM-dd HH:mm:ss} - %msg%n
 logging.file.name=logs/productos.log
 logging.logback.rollingpolicy.max-file-size=10MB
 logging.logback.rollingpolicy.max-history=7
+
+# Swagger / SpringDoc OpenAPI
+springdoc.api-docs.enabled=true
+springdoc.swagger-ui.enabled=true
+springdoc.swagger-ui.path=/doc/swagger-ui.html
 ```
 
 > Con `ddl-auto=none` Hibernate **no toca** el esquema de la base de datos. Es Flyway quien crea y versiona las tablas mediante scripts SQL versionados.
@@ -174,6 +183,8 @@ productos/
 │   │   │   ├── ProductosApplication.java         # Punto de entrada (@EnableFeignClients)
 │   │   │   ├── client/
 │   │   │   │   └── CategoriaClient.java          # Cliente Feign para Platzi API
+│   │   │   ├── config/
+│   │   │   │   └── SwaggerConfig.java            # Configuración de Swagger / OpenAPI
 │   │   │   ├── controller/
 │   │   │   │   └── ProductosController.java      # Endpoints REST
 │   │   │   ├── dto/
@@ -963,6 +974,209 @@ Si hay un error de validación:
 
 ---
 
+### 10. **Documentación de API con Swagger / SpringDoc OpenAPI**
+
+#### ¿Qué es Swagger y por qué es importante?
+
+Cuando construyes una API REST, otras personas necesitan saber cómo usarla: qué endpoints existen, qué datos enviar, qué respuestas esperar. Sin documentación, cada desarrollador tendría que leer el código fuente para entender la API.
+
+**Swagger UI** es una interfaz web interactiva que genera esta documentación **automáticamente** a partir del código. Se actualiza sola cada vez que agregas o modificas endpoints.
+
+> Imagina que tu API es un cajero automático. Swagger UI es el manual de instrucciones con pantallas reales donde puedes practicar cada operación sin riesgo de romper nada.
+
+**OpenAPI** es el estándar (especificación) que define cómo se debe describir una API REST. Swagger UI es la herramienta que visualiza ese estándar. En este proyecto usamos **SpringDoc**, la librería que integra OpenAPI con Spring Boot automáticamente.
+
+---
+
+#### Paso 1: Agregar la dependencia en `pom.xml`
+
+```xml
+<!-- Swagger / SpringDoc OpenAPI UI -->
+<dependency>
+    <groupId>org.springdoc</groupId>
+    <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+    <version>2.6.0</version>
+</dependency>
+```
+
+SpringDoc escanea todos los `@RestController` y genera la documentación sin que escribas nada más. Solo con esta dependencia, Swagger ya funciona.
+
+---
+
+#### Paso 2: Configurar en `application.properties`
+
+```properties
+# Activa la generación del JSON con la especificación OpenAPI
+springdoc.api-docs.enabled=true
+
+# Activa la interfaz visual de Swagger UI
+springdoc.swagger-ui.enabled=true
+
+# Ruta personalizada donde se sirve Swagger UI
+springdoc.swagger-ui.path=/doc/swagger-ui.html
+```
+
+Una vez levantada la aplicación, accede a:
+**`http://localhost:8080/doc/swagger-ui/index.html`**
+
+---
+
+#### Paso 3: Clase de configuración `SwaggerConfig`
+
+**Ubicación**: [SwaggerConfig.java](src/main/java/com/duoc/productos/config/SwaggerConfig.java)
+
+```java
+@Configuration
+public class SwaggerConfig {
+
+    @Bean
+    public OpenAPI customOpenAPI() {
+        return new OpenAPI()
+                .info(new Info()
+                        .title("API Gestión de Productos")
+                        .description("API REST para la gestión de productos...")
+                        .version("v1.0.0")
+                        .contact(new Contact()
+                                .name("DUOC UC - Fullstack I")
+                                .url("https://www.duoc.cl")));
+    }
+}
+```
+
+**¿Qué hace?**
+- `@Configuration`: Spring la detecta al iniciar y ejecuta los `@Bean` que contiene
+- `@Bean`: Registra el objeto `OpenAPI` en el contexto de Spring
+- `Info`: Personaliza el encabezado que aparece en Swagger UI (título, descripción, versión, contacto)
+
+Sin esta clase, Swagger funciona igual pero muestra un título genérico. Esta clase le da identidad a tu API.
+
+---
+
+#### Paso 4: Documentar el Controller con anotaciones Swagger
+
+**Ubicación**: [ProductosController.java](src/main/java/com/duoc/productos/controller/ProductosController.java)
+
+##### `@Tag` — Agrupa los endpoints bajo un nombre
+
+```java
+@Tag(name = "Productos", description = "Operaciones relacionadas con la gestión de productos")
+@RestController
+@RequestMapping("/api/v1/productos")
+public class ProductosController { }
+```
+
+Aparece en Swagger UI como una sección colapsable con todos los endpoints del controlador.
+
+---
+
+##### `@Operation` — Describe un endpoint específico
+
+```java
+@Operation(
+    summary = "Crear un producto",
+    description = "Crea un nuevo producto. La categoría es validada contra la Platzi Fake Store API."
+)
+@PostMapping
+public ResponseEntity<ProductoDTO> guardar(...) { }
+```
+
+- `summary`: Título corto que aparece al lado del verbo HTTP
+- `description`: Texto explicativo que aparece al expandir el endpoint
+
+---
+
+##### `@ApiResponses` y `@ApiResponse` — Documentan las posibles respuestas
+
+```java
+@ApiResponses(value = {
+    @ApiResponse(responseCode = "201", description = "Producto creado exitosamente",
+            content = @Content(mediaType = "application/json",
+                    schema = @Schema(implementation = ProductoDTO.class))),
+    @ApiResponse(responseCode = "400", description = "Datos de entrada inválidos",
+            content = @Content),
+    @ApiResponse(responseCode = "404", description = "Categoría no encontrada",
+            content = @Content)
+})
+```
+
+- `responseCode`: Código HTTP de la respuesta
+- `description`: Explicación de cuándo ocurre
+- `content + schema`: Le dice a Swagger qué tipo de objeto devuelve (para generar el ejemplo)
+- `content = @Content` vacío: indica que esa respuesta no tiene cuerpo
+
+---
+
+##### `@Parameter` — Describe parámetros de ruta y query
+
+```java
+@GetMapping("/{id}")
+public ResponseEntity<ProductoDTO> buscarPorId(
+        @Parameter(description = "ID del producto a buscar", required = true)
+        @PathVariable Integer id) { }
+
+@GetMapping
+public ResponseEntity<List<ProductoDTO>> listar(
+        @Parameter(description = "Nombre del producto para filtrar (opcional)")
+        @RequestParam(required = false) String nombre) { }
+```
+
+Swagger muestra estos parámetros con descripción y permite probarlos directamente desde el navegador.
+
+---
+
+#### Paso 5: Documentar los DTOs con `@Schema`
+
+**Ubicación**: [ProductoRequest.java](src/main/java/com/duoc/productos/dto/ProductoRequest.java) y [ProductoDTO.java](src/main/java/com/duoc/productos/dto/ProductoDTO.java)
+
+```java
+@Schema(description = "Datos requeridos para crear o actualizar un producto")
+public class ProductoRequest {
+
+    @Schema(description = "Nombre del producto", example = "Teclado Gamer Razer")
+    private String nombre;
+
+    @Schema(description = "Cantidad disponible en inventario", example = "10")
+    private Integer cantidad;
+
+    @Schema(description = "Precio del producto en pesos chilenos", example = "39990")
+    private Integer precio;
+
+    @Schema(description = "Categoría del producto (debe existir en Platzi Fake Store API)", example = "Electronics")
+    private String categoria;
+}
+```
+
+**¿Qué aporta `@Schema`?**
+- Swagger genera automáticamente un JSON de ejemplo con los valores del campo `example`
+- Cualquier desarrollador que use la API sabe exactamente qué formato enviar
+- El botón "Try it out" en Swagger UI aparece pre-llenado con los ejemplos
+
+---
+
+#### ¿Cómo se ve Swagger UI?
+
+Al acceder a `http://localhost:8080/doc/swagger-ui/index.html` verás:
+
+```
+┌─────────────────────────────────────────────────────┐
+│  API Gestión de Productos  v1.0.0                    │
+│  API REST para la gestión de productos...            │
+├─────────────────────────────────────────────────────┤
+│  ▼ Productos  Operaciones relacionadas con...        │
+│  ┌──────────────────────────────────────────────┐   │
+│  │ POST  /api/v1/productos   Crear un producto  │   │
+│  │ GET   /api/v1/productos   Listar productos   │   │
+│  │ GET   /api/v1/productos/{id}  Buscar por ID  │   │
+│  │ PUT   /api/v1/productos/{id}  Actualizar     │   │
+│  │ DELETE /api/v1/productos/{id} Eliminar       │   │
+│  └──────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────┘
+```
+
+Cada endpoint es expandible y tiene un botón **"Try it out"** que permite ejecutar peticiones reales directamente desde el navegador, sin necesidad de Postman ni cURL.
+
+---
+
 ## 🚀 Crear un Nuevo Proyecto con Spring Initializr
 
 ### Opción 1: Web (Recomendado para principiantes)
@@ -1434,6 +1648,16 @@ log.warn("...");   // Situaciones inesperadas pero controladas
 log.error("...");  // Errores que deben investigarse
 ```
 
+### 11. **Documentación Automática con Swagger / SpringDoc OpenAPI**
+Usar `@Tag`, `@Operation`, `@ApiResponses` y `@Schema` para documentar la API de forma que Swagger UI genere una interfaz interactiva automáticamente. Cualquier desarrollador puede explorar y probar los endpoints sin leer el código fuente.
+
+```java
+@Tag(name = "Productos", description = "Operaciones de gestión de productos")
+@Operation(summary = "Crear un producto", description = "Crea un nuevo producto validando la categoría")
+@ApiResponse(responseCode = "201", description = "Producto creado exitosamente")
+@Schema(description = "Nombre del producto", example = "Teclado Gamer Razer")
+```
+
 ---
 
 ### Nivel 1: Básico
@@ -1508,6 +1732,10 @@ El JSON enviado tiene formato inválido. Verifica comillas dobles, tipos de dato
 - [Logback — Documentación oficial (motor de logs usado por Spring Boot)](https://logback.qos.ch/documentation.html)
 - [Spring Boot Logging — Referencia oficial](https://docs.spring.io/spring-boot/docs/current/reference/html/features.html#features.logging)
 - [Lombok `@Slf4j` — Documentación](https://projectlombok.org/features/log)
+- [SpringDoc OpenAPI — Documentación oficial](https://springdoc.org/)
+- [OpenAPI Specification (OAS) — Estándar oficial](https://swagger.io/specification/)
+- [Swagger UI — Guía de uso](https://swagger.io/tools/swagger-ui/)
+- [Anotaciones de SpringDoc — Referencia completa](https://docs.swagger.io/swagger-core/v2.0.0/apidocs/)
 
 ---
 

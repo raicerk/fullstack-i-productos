@@ -18,6 +18,7 @@ Este ejercicio corresponde al ramo **Fullstack I** para estudiantes de **Ingenie
 - Utilizar el patrón de diseño **CSR (Controller-Service-Repository)**: adaptación de MVC para Spring Boot
 - Implementar **logging** con SLF4J y Logback para registrar eventos importantes de la aplicación
 - Documentar la API con **Swagger UI** usando SpringDoc OpenAPI para que otros desarrolladores puedan explorar y probar los endpoints
+- Escribir **pruebas unitarias** con JUnit 5 y Mockito para verificar el comportamiento del servicio y del controlador de forma aislada
 
 ---
 
@@ -64,6 +65,9 @@ springdoc-openapi-starter-webmvc-ui 2.6.0
 
 <!-- Spring Boot Starter Test (Pruebas unitarias) -->
 spring-boot-starter-test
+
+<!-- H2 Database (Base de datos en memoria para tests — no requiere MySQL) -->
+h2
 ```
 
 ---
@@ -209,8 +213,15 @@ productos/
 │   │               ├── V2__create_productos_insert.sql # Datos iniciales de ejemplo
 │   │               └── V3__add_column_categoria.sql    # Agrega columna categoria
 │   └── test/
-│       └── ProductosApplicationTests.java        # Pruebas
-└── pom.xml                                       # Configuración Maven
+│       ├── java/com/duoc/productos/
+│       │   ├── ProductosApplicationTests.java        # Verifica que el contexto carga OK
+│       │   ├── controller/
+│       │   │   └── ProductosControllerTest.java      # 6 pruebas del controlador (MockMvc)
+│       │   └── service/
+│       │       └── ProductosServiceTest.java         # 11 pruebas del servicio (Mockito)
+│       └── resources/
+│           └── application.properties               # Config H2 en memoria para tests
+└── pom.xml                                           # Configuración Maven
 ```
 
 ---
@@ -1177,6 +1188,213 @@ Cada endpoint es expandible y tiene un botón **"Try it out"** que permite ejecu
 
 ---
 
+### 11. **Pruebas Unitarias con JUnit 5 y Mockito**
+
+#### ¿Por qué es importante tener pruebas unitarias?
+
+Cuando modificas código en un proyecto sin pruebas, no tienes forma de saber si rompiste algo que antes funcionaba. Las **pruebas unitarias** son porciones de código que verifican automáticamente que tu código hace lo que se supone que debe hacer.
+
+> Imagina que construyes un edificio y cada piso tiene sensores que te avisan si algo se rompe. Las pruebas unitarias son esos sensores: detectan problemas automáticamente antes de que lleguen a producción.
+
+**Beneficios:**
+- 🔍 Detectan errores en etapas tempranas del desarrollo
+- 🔄 Permiten refactorizar con confianza (si los tests siguen pasando, nada se rompió)
+- 📄 Actúan como documentación viva del comportamiento esperado
+- 🚀 Son esenciales para CI/CD (integración y entrega continua)
+
+---
+
+#### Herramientas utilizadas
+
+| Herramienta | ¿Qué es? | ¿Para qué se usa? |
+|-------------|----------|-------------------|
+| **JUnit 5** | Framework de pruebas para Java | Escribir y ejecutar los tests (`@Test`, `@BeforeEach`, `@DisplayName`) |
+| **Mockito** | Framework de simulación (mocking) | Reemplazar dependencias reales por objetos simulados |
+| **MockMvc** | Utilidad de Spring Test | Simular peticiones HTTP al controller sin levantar un servidor real |
+| **H2** | Base de datos en memoria | Reemplaza MySQL en tests de integración — no requiere servidor externo |
+
+---
+
+#### Estructura de una prueba: Given - When - Then (AAA)
+
+Todo buen test sigue la estructura **AAA** (Arrange, Act, Assert), también llamada **Given - When - Then**:
+
+```java
+@Test
+@DisplayName("guardar: debería guardar el producto y retornar el DTO correctamente")
+void shouldGuardarProductoCorrectamente() {
+
+    // Given (Arrange) — preparar el escenario: configurar los mocks
+    when(categoriaClient.obtenerCategorias()).thenReturn(List.of(categoriaValida));
+    when(productosRepository.save(any(Productos.class))).thenReturn(productoGuardado);
+
+    // When (Act) — ejecutar el método que estamos probando
+    ProductoDTO resultado = productosService.guardar(request);
+
+    // Then (Assert) — verificar que el resultado es el esperado
+    assertNotNull(resultado);
+    assertEquals("Teclado Gamer", resultado.getNombre());
+    verify(productosRepository, times(1)).save(any(Productos.class));
+}
+```
+
+---
+
+#### Configuración de base de datos para tests
+
+El proyecto usa **perfiles de Spring** para separar la base de datos de desarrollo de la de pruebas. Cuando los tests se ejecutan, Spring usa automáticamente `src/test/resources/application.properties` con H2 en lugar de MySQL:
+
+```properties
+# src/test/resources/application.properties
+
+# H2 en memoria: se crea al iniciar el test y se destruye al terminar
+spring.datasource.url=jdbc:h2:mem:testdb
+spring.datasource.driver-class-name=org.h2.Driver
+spring.datasource.username=sa
+spring.datasource.password=
+
+# Hibernate crea el esquema automáticamente (no usa Flyway)
+spring.jpa.hibernate.ddl-auto=create-drop
+
+# Flyway deshabilitado — sus scripts usan sintaxis MySQL incompatible con H2
+spring.flyway.enabled=false
+```
+
+> Esto garantiza que los tests **nunca modifican la base de datos de desarrollo**. Cada ejecución parte de cero con una BD limpia en memoria.
+
+---
+
+#### Pruebas del servicio: `ProductosServiceTest`
+
+**Ubicación**: [ProductosServiceTest.java](src/test/java/com/duoc/productos/service/ProductosServiceTest.java)
+
+Usa `@ExtendWith(MockitoExtension.class)` — **no levanta el contexto de Spring**. Es la forma más rápida y aislada de probar lógica de negocio.
+
+```java
+@ExtendWith(MockitoExtension.class)
+@DisplayName("Pruebas unitarias - ProductosService")
+class ProductosServiceTest {
+
+    @Mock
+    private ProductosRepository productosRepository; // Simula la BD
+
+    @Mock
+    private CategoriaClient categoriaClient;         // Simula la API externa
+
+    @InjectMocks
+    private ProductosService productosService;       // La clase real que probamos
+}
+```
+
+**¿Qué hace cada anotación?**
+- `@Mock`: Crea un objeto simulado. Sus métodos no hacen nada real hasta que los configuras con `when(...)`
+- `@InjectMocks`: Crea una instancia real de `ProductosService` e inyecta los mocks como dependencias
+- `@ExtendWith(MockitoExtension.class)`: Activa el procesamiento de `@Mock` e `@InjectMocks` automáticamente
+
+**Casos de prueba implementados (11 tests):**
+
+| Test | Método | Escenario |
+|------|--------|-----------|
+| `shouldGuardarProductoCorrectamente` | `guardar()` | Categoría válida → retorna DTO |
+| `shouldThrowCategoriaNotFoundAlGuardar` | `guardar()` | Categoría inválida → lanza excepción |
+| `shouldListarTodosLosProductos` | `listar()` | BD con datos → retorna lista |
+| `shouldRetornarListaVaciaAlListar` | `listar()` | BD vacía → retorna lista vacía |
+| `shouldBuscarProductoPorIdCorrectamente` | `buscarPorId()` | ID existe → retorna producto |
+| `shouldThrowProductoNotFoundAlBuscarPorId` | `buscarPorId()` | ID no existe → lanza excepción |
+| `shouldActualizarProductoCorrectamente` | `actualizar()` | ID existe → retorna DTO actualizado |
+| `shouldThrowProductoNotFoundAlActualizar` | `actualizar()` | ID no existe → lanza excepción |
+| `shouldEliminarProductoCorrectamente` | `eliminar()` | ID existe → llama a `deleteById` |
+| `shouldThrowProductoNotFoundAlEliminar` | `eliminar()` | ID no existe → lanza excepción |
+| `shouldBuscarProductosPorNombre` | `buscarPorNombre()` | Nombre parcial → retorna coincidencias |
+
+---
+
+#### Pruebas del controller: `ProductosControllerTest`
+
+**Ubicación**: [ProductosControllerTest.java](src/test/java/com/duoc/productos/controller/ProductosControllerTest.java)
+
+Usa `@WebMvcTest` — carga solo la capa web (controller + `GlobalExceptionHandler`). **No conecta a la BD**. Ideal para probar rutas, validaciones y códigos de estado HTTP.
+
+```java
+@WebMvcTest(ProductosController.class)
+@DisplayName("Pruebas unitarias - ProductosController")
+class ProductosControllerTest {
+
+    @Autowired
+    private MockMvc mockMvc; // Simula peticiones HTTP
+
+    @MockitoBean
+    private ProductosService productosService; // Reemplaza el servicio real
+}
+```
+
+**¿Qué hace cada anotación?**
+- `@WebMvcTest(ProductosController.class)`: Carga únicamente el controller especificado y la capa web
+- `@MockitoBean`: Registra un mock de `ProductosService` en el contexto de Spring *(en Spring Boot 4.x reemplaza al antiguo `@MockBean`)*
+- `MockMvc`: Permite hacer peticiones HTTP simuladas y verificar la respuesta completa
+
+**¿Cómo funciona MockMvc?**
+
+```java
+mockMvc.perform(post("/api/v1/productos")          // simula la petición
+        .contentType(MediaType.APPLICATION_JSON)
+        .content(objectMapper.writeValueAsString(requestValido)))
+    .andExpect(status().isCreated())               // verifica el status code 201
+    .andExpect(jsonPath("$.nombre").value("Teclado Gamer")); // verifica el JSON
+```
+
+**Casos de prueba implementados (6 tests):**
+
+| Test | Endpoint | Escenario | Status esperado |
+|------|----------|-----------|-----------------|
+| `shouldGuardarProductoYRetornar201` | `POST /api/v1/productos` | Datos válidos → crea producto | 201 |
+| `shouldRetornar400CuandoDatosInvalidos` | `POST /api/v1/productos` | Datos inválidos → falla validación | 400 |
+| `shouldListarProductosYRetornar200` | `GET /api/v1/productos` | Hay productos → retorna lista | 200 |
+| `shouldRetornar204CuandoListaVacia` | `GET /api/v1/productos` | Sin productos → sin contenido | 204 |
+| `shouldBuscarPorIdYRetornar200` | `GET /api/v1/productos/{id}` | ID existe → retorna producto | 200 |
+| `shouldRetornar404CuandoIdNoExiste` | `GET /api/v1/productos/{id}` | ID no existe → error | 404 |
+
+---
+
+#### Cómo ejecutar los tests
+
+```bash
+# Ejecutar todos los tests
+mvn test
+
+# Ejecutar solo los tests del servicio
+mvn test -Dtest=ProductosServiceTest
+
+# Ejecutar solo los tests del controlador
+mvn test -Dtest=ProductosControllerTest
+```
+
+**Salida esperada:**
+```
+Tests run: 1,  Failures: 0, Errors: 0 -- ProductosApplicationTests
+Tests run: 6,  Failures: 0, Errors: 0 -- ProductosControllerTest
+Tests run: 11, Failures: 0, Errors: 0 -- ProductosServiceTest
+
+Tests run: 18, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+```
+
+> Los mensajes `ERROR` que aparecen en la consola durante los tests son **esperados** — son los propios logs del `GlobalExceptionHandler` siendo ejercitados por los tests de 404 y 400. No son fallas de tests.
+
+---
+
+#### Nota importante: Spring Boot 4.x vs versiones anteriores
+
+Si buscas tutoriales o ejemplos de testing en Spring Boot, verás que usan `@MockBean`. En **Spring Boot 4.x** (que usa Spring Framework 7.x) esta anotación fue removida. Las equivalencias son:
+
+| Spring Boot 3.x (anterior) | Spring Boot 4.x (este proyecto) |
+|---|---|
+| `@MockBean` | `@MockitoBean` |
+| `import org.springframework.boot.test.mock.mockito.MockBean` | `import org.springframework.test.context.bean.override.mockito.MockitoBean` |
+| `import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest` | `import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest` |
+
+---
+
 ## 🚀 Crear un Nuevo Proyecto con Spring Initializr
 
 ### Opción 1: Web (Recomendado para principiantes)
@@ -1658,6 +1876,19 @@ Usar `@Tag`, `@Operation`, `@ApiResponses` y `@Schema` para documentar la API de
 @Schema(description = "Nombre del producto", example = "Teclado Gamer Razer")
 ```
 
+### 12. **Pruebas Unitarias con JUnit 5 y Mockito**
+Escribir tests automatizados que verifiquen el comportamiento de cada método de forma aislada, usando mocks para simular dependencias (BD, API externa). Esto permite detectar errores antes de desplegar y refactorizar con confianza.
+
+```java
+// Service: prueba aislada con Mockito puro — sin Spring, sin BD
+@ExtendWith(MockitoExtension.class)
+class ProductosServiceTest { ... }  // 11 tests
+
+// Controller: prueba de la capa web con MockMvc
+@WebMvcTest(ProductosController.class)
+class ProductosControllerTest { ... }  // 6 tests
+```
+
 ---
 
 ### Nivel 1: Básico
@@ -1736,6 +1967,10 @@ El JSON enviado tiene formato inválido. Verifica comillas dobles, tipos de dato
 - [OpenAPI Specification (OAS) — Estándar oficial](https://swagger.io/specification/)
 - [Swagger UI — Guía de uso](https://swagger.io/tools/swagger-ui/)
 - [Anotaciones de SpringDoc — Referencia completa](https://docs.swagger.io/swagger-core/v2.0.0/apidocs/)
+- [JUnit 5 — Documentación oficial](https://junit.org/junit5/docs/current/user-guide/)
+- [Mockito — Documentación oficial](https://site.mockito.org/)
+- [Spring Testing — Referencia oficial](https://docs.spring.io/spring-framework/reference/testing.html)
+- [Spring Boot Test — Guía de pruebas](https://docs.spring.io/spring-boot/docs/current/reference/html/features.html#features.testing)
 
 ---
 
@@ -1744,5 +1979,3 @@ El JSON enviado tiene formato inválido. Verifica comillas dobles, tipos de dato
 Este proyecto es de código abierto y está disponible bajo la licencia MIT, diseñado para propósitos educativos.
 
 ---
-
-**Última actualización**: Junio 2026
